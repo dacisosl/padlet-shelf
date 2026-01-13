@@ -101,3 +101,13 @@ export const updateCardsOrder = async (updates) => {
   });
   return await batch.commit();
 };
+
+// 여러 컬럼의 위치를 한 번에 업데이트 (섹션 드래그 앤 드롭 시 사용)
+export const updateColumnsOrder = async (updates) => {
+  const batch = writeBatch(db);
+  updates.forEach(({ columnId, updates: columnUpdates }) => {
+    const columnRef = doc(db, COLUMNS_COLLECTION, columnId);
+    batch.update(columnRef, columnUpdates);
+  });
+  return await batch.commit();
+};

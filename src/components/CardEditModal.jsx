@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { updateCard } from '../firebase/firestore';
+import { updateCard, deleteCard } from '../firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { storage } from '../firebase/firebase';
 import { compressImage, isImageFile, isFileSizeValid } from '../utils/imageCompression';
@@ -10,6 +10,7 @@ const CardEditModal = ({ card, isOpen, onClose, onUpdate }) => {
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(card?.imageUrl || null);
   const [isUploading, setIsUploading] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -143,6 +144,36 @@ const CardEditModal = ({ card, isOpen, onClose, onUpdate }) => {
     }
   };
 
+  const handleDelete = async () => {
+    if (!window.confirm('이 카드를 삭제하시겠습니까?')) return;
+    
+    setIsDeleting(true);
+    try {
+      // 이미지가 있으면 Storage에서도 삭제
+      if (card.imageUrl) {
+        try {
+          const oldImagePath = getStoragePathFromUrl(card.imageUrl);
+          if (oldImagePath) {
+            const oldImageRef = ref(storage, oldImagePath);
+            await deleteObject(oldImageRef);
+          }
+        } catch (error) {
+          console.error('이미지 삭제 실패:', error);
+          // 삭제 실패해도 계속 진행
+        }
+      }
+      
+      await deleteCard(card.id);
+      onUpdate();
+      onClose();
+    } catch (error) {
+      console.error('카드 삭제 실패:', error);
+      alert('카드 삭제에 실패했습니다.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   // 모달이 열릴 때 body 스크롤 방지
   useEffect(() => {
     if (isOpen) {
@@ -251,21 +282,31 @@ const CardEditModal = ({ card, isOpen, onClose, onUpdate }) => {
         <div className="px-6 py-4 border-t border-gray-200 flex gap-3 flex-shrink-0">
           <button
             type="button"
-            onClick={onClose}
-            disabled={isUploading}
-            className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium disabled:opacity-50 transition-colors"
+            onClick={handleDelete}
+            disabled={isUploading || isDeleting}
+            className="px-4 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm hover:shadow-md"
           >
-            취소
+            {isDeleting ? '삭제 중...' : '삭제'}
           </button>
-          <button
-            type="submit"
-            form="card-edit-form"
-            onClick={handleSubmit}
-            disabled={isUploading}
-            className="flex-1 px-4 py-2.5 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm hover:shadow-md"
-          >
-            {isUploading ? '저장 중...' : '저장'}
-          </button>
+          <div className="flex gap-3 flex-1">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isUploading || isDeleting}
+              className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium disabled:opacity-50 transition-colors"
+            >
+              취소
+            </button>
+            <button
+              type="submit"
+              form="card-edit-form"
+              onClick={handleSubmit}
+              disabled={isUploading || isDeleting}
+              className="flex-1 px-4 py-2.5 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm hover:shadow-md"
+            >
+              {isUploading ? '저장 중...' : '저장'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

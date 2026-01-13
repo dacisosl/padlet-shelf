@@ -1,31 +1,12 @@
 import { useState } from 'react';
 import { Draggable } from '@hello-pangea/dnd';
-import { deleteCard } from '../firebase/firestore';
 import { useAuth } from '../hooks/useAuth';
 import { renderTextWithLinks } from '../utils/linkParser.jsx';
 import CardEditModal from './CardEditModal';
 
 const Card = ({ card, index }) => {
   const { user } = useAuth();
-  const [isDeleting, setIsDeleting] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-
-  const handleDelete = async (e) => {
-    e.stopPropagation();
-    if (!window.confirm('이 카드를 삭제하시겠습니까?')) return;
-    
-    setIsDeleting(true);
-    try {
-      await deleteCard(card.id);
-    } catch (error) {
-      console.error('카드 삭제 실패:', error);
-      alert('카드 삭제에 실패했습니다.');
-    } finally {
-      setIsDeleting(false);
-    }
-  };
-
-  const isOwner = user && card.uid === user.uid;
 
   return (
     <Draggable draggableId={card.id} index={index}>
@@ -48,44 +29,13 @@ const Card = ({ card, index }) => {
               : '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
           }}
         >
-          {/* 삭제 버튼 (X 표시) - 항상 표시, 빨간색 강조 */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              handleDelete(e);
-            }}
-            disabled={isDeleting}
-            className="absolute -top-2 -right-2 w-7 h-7 flex items-center justify-center rounded-full bg-red-500 hover:bg-red-600 active:bg-red-700 text-white z-50 shadow-lg hover:shadow-xl transition-all border-2 border-white"
-            style={{
-              pointerEvents: 'auto',
-              fontSize: '14px',
-              fontWeight: 'bold',
-            }}
-            title="카드 삭제"
-            onMouseDown={(e) => {
-              e.stopPropagation();
-              e.preventDefault();
-            }}
-          >
-            {isDeleting ? (
-              <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-            ) : (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={4}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            )}
-          </button>
-
           {/* 드래그 핸들 */}
           <div 
             {...provided.dragHandleProps} 
             className="cursor-grab active:cursor-grabbing"
             onMouseDown={(e) => {
-              // X 버튼이나 링크 클릭이 아닐 때만 드래그 허용
-              if (e.target.closest('button') || e.target.closest('a')) {
+              // 링크 클릭이 아닐 때만 드래그 허용
+              if (e.target.closest('a')) {
                 e.stopPropagation();
               }
             }}
@@ -95,8 +45,8 @@ const Card = ({ card, index }) => {
                 e.stopPropagation();
                 return;
               }
-              // X 버튼이나 링크 클릭이 아닐 때만 모달 열기
-              if (!e.target.closest('button') && !e.target.closest('a')) {
+              // 링크 클릭이 아닐 때만 모달 열기
+              if (!e.target.closest('a')) {
                 setIsEditModalOpen(true);
               }
             }}
