@@ -13,6 +13,8 @@ const Board = () => {
   const [error, setError] = useState(null);
   const [showAddColumnForm, setShowAddColumnForm] = useState(false);
   const [newColumnTitle, setNewColumnTitle] = useState('');
+  const [isDragging, setIsDragging] = useState(false);
+  const [localCards, setLocalCards] = useState([]); // 드래그 중 로컬 상태
 
   useEffect(() => {
     // 컬럼 구독
@@ -47,7 +49,11 @@ const Board = () => {
     // 카드 구독
     const unsubscribeCards = subscribeToCards(
       (newCards) => {
-        setCards(newCards);
+        // 드래그 중이 아닐 때만 업데이트 (성능 최적화)
+        if (!isDragging) {
+          setCards(newCards);
+          setLocalCards([]); // 로컬 상태 초기화
+        }
       },
       (error) => {
         console.error('카드 구독 오류:', error);
@@ -58,11 +64,12 @@ const Board = () => {
       unsubscribeColumns();
       unsubscribeCards();
     };
-  }, [columnsInitialized, loading, user]);
+  }, [columnsInitialized, loading, user, isDragging]);
 
-  // 컬럼별로 카드 분류
+  // 컬럼별로 카드 분류 (로컬 상태 우선 사용)
   const getCardsByColumn = (columnId) => {
-    return cards
+    const cardsToUse = localCards.length > 0 && isDragging ? localCards : cards;
+    return cardsToUse
       .filter((card) => card.columnId === columnId)
       .sort((a, b) => (a.order || 0) - (b.order || 0));
   };
@@ -109,29 +116,53 @@ const Board = () => {
     }
   };
 
-  // 드래그 앤 드롭 핸들러 (최적화: 낙관적 업데이트)
+  // 드래그 시작 핸들러
+  const handleDragStart = () => {
+    setIsDragging(true);
+    // 현재 카드 상태를 로컬 상태로 복사 (드래그 중 실시간 업데이트 차단)
+    setLocalCards([...cards]);
+  };
+
+  // 드래그 앤 드롭 핸들러 (최적화: 즉시 로컬 업데이트 + 백그라운드 Firestore 업데이트)
   const handleDragEnd = async (result) => {
     const { destination, source, draggableId } = result;
 
     // 드롭 위치가 없으면 무시
-    if (!destination) return;
+    if (!destination) {
+      setIsDragging(false);
+      setLocalCards([]);
+      return;
+    }
 
     // 같은 위치면 무시
     if (
       destination.droppableId === source.droppableId &&
       destination.index === source.index
     ) {
+      setIsDragging(false);
+      setLocalCards([]);
       return;
     }
 
     const sourceColumnId = source.droppableId;
     const destColumnId = destination.droppableId;
-    const sourceCards = getCardsByColumn(sourceColumnId);
-    const destCards = getCardsByColumn(destColumnId);
-    const draggedCard = cards.find((card) => card.id === draggableId);
+    const currentCards = localCards.length > 0 ? localCards : cards;
+    const sourceCards = currentCards
+      .filter((card) => card.columnId === sourceColumnId)
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
+    const destCards = currentCards
+      .filter((card) => card.columnId === destColumnId)
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
+    const draggedCard = currentCards.find((card) => card.id === draggableId);
 
-    if (!draggedCard) return;
+    if (!draggedCard) {
+      setIsDragging(false);
+      setLocalCards([]);
+      return;
+    }
 
+    // 즉시 로컬 상태 업데이트 (UI 즉시 반영)
+    let updatedCards = [...currentCards];
     let updates = [];
 
     // 같은 컬럼 내에서 이동
@@ -139,6 +170,14 @@ const Board = () => {
       const newCards = Array.from(sourceCards);
       const [removed] = newCards.splice(source.index, 1);
       newCards.splice(destination.index, 0, removed);
+
+      // 업데이트된 카드들의 order 변경
+      newCards.forEach((card, index) => {
+        const cardIndex = updatedCards.findIndex(c => c.id === card.id);
+        if (cardIndex !== -1) {
+          updatedCards[cardIndex] = { ...updatedCards[cardIndex], order: index };
+        }
+      });
 
       // 실제로 순서가 바뀐 카드만 업데이트 (최적화)
       const minIndex = Math.min(source.index, destination.index);
@@ -161,6 +200,26 @@ const Board = () => {
       const newDestCards = Array.from(destCards);
       newDestCards.splice(destination.index, 0, draggedCard);
 
+      // 소스 컬럼 카드 업데이트
+      newSourceCards.forEach((card, index) => {
+        const cardIndex = updatedCards.findIndex(c => c.id === card.id);
+        if (cardIndex !== -1) {
+          updatedCards[cardIndex] = { ...updatedCards[cardIndex], order: index };
+        }
+      });
+
+      // 대상 컬럼 카드 업데이트
+      newDestCards.forEach((card, index) => {
+        const cardIndex = updatedCards.findIndex(c => c.id === card.id);
+        if (cardIndex !== -1) {
+          updatedCards[cardIndex] = { 
+            ...updatedCards[cardIndex], 
+            order: index,
+            columnId: destColumnId 
+          };
+        }
+      });
+
       // 소스 컬럼: 이동된 위치 이후의 카드만 업데이트
       for (let i = source.index; i < newSourceCards.length; i++) {
         updates.push({
@@ -181,7 +240,17 @@ const Board = () => {
       }
     }
 
-    // Firestore에 일괄 업데이트 (비동기로 실행, UI 블로킹 방지)
+    // 즉시 로컬 상태 반영 (UI 즉시 업데이트)
+    setCards(updatedCards);
+    setLocalCards(updatedCards);
+    
+    // 드래그 종료 플래그 해제 (다음 프레임에서)
+    setTimeout(() => {
+      setIsDragging(false);
+      setLocalCards([]);
+    }, 100);
+
+    // Firestore에 일괄 업데이트 (백그라운드에서 비동기 실행)
     updateCardsOrder(updates).catch((error) => {
       console.error('카드 순서 업데이트 실패:', error);
       // 실패해도 사용자에게 알리지 않음 (실시간 동기화로 자동 복구됨)
@@ -213,7 +282,7 @@ const Board = () => {
 
       {/* 메인 컨텐츠 영역 */}
       <div className="w-full overflow-x-auto overflow-y-auto" style={{ height: 'calc(100vh - 80px)' }}>
-        <DragDropContext onDragEnd={handleDragEnd}>
+        <DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
           <div className="inline-flex px-6 py-6 gap-5" style={{ alignItems: 'flex-start' }}>
             {/* 기존 컬럼들 */}
             {columns.map((column) => {
