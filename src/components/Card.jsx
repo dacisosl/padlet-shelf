@@ -4,24 +4,25 @@ import { useAuth } from '../hooks/useAuth';
 import { renderTextWithLinks } from '../utils/linkParser.jsx';
 import CardEditModal from './CardEditModal';
 
-const Card = ({ card, index }) => {
+const Card = ({ card, index, columns }) => {
   const { user } = useAuth();
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
   return (
-    <Draggable draggableId={card.id} index={index}>
+    <Draggable draggableId={String(card.id)} index={index}>
       {(provided, snapshot) => (
         <div
           ref={provided.innerRef}
           {...provided.draggableProps}
-          className={`group bg-white rounded-xl shadow-sm border border-gray-100 p-4 transition-all duration-200 relative ${
+          className={`group bg-white rounded-xl shadow-sm border border-gray-100 p-4 relative ${
             snapshot.isDragging 
               ? 'shadow-2xl rotate-1 scale-105 z-50' 
               : isEditModalOpen 
                 ? '' 
-                : 'hover:shadow-lg hover:-translate-y-1 hover:border-gray-200'
+                : 'hover:shadow-lg hover:-translate-y-1 hover:border-gray-200 transition-all duration-200'
           }`}
           style={{
+            ...provided.draggableProps.style,
             borderRadius: '14px',
             pointerEvents: isEditModalOpen ? 'none' : 'auto',
             boxShadow: snapshot.isDragging 
@@ -85,6 +86,7 @@ const Card = ({ card, index }) => {
           {/* 수정 모달 */}
           <CardEditModal
             card={card}
+            columns={columns}
             isOpen={isEditModalOpen}
             onClose={() => setIsEditModalOpen(false)}
             onUpdate={() => {

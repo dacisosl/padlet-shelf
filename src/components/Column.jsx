@@ -1,12 +1,14 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Draggable, Droppable } from '@hello-pangea/dnd';
 import Card from './Card';
 import AddCardButton from './AddCardButton';
 
-const Column = ({ column, index, cards, onUpdateColumn, onDeleteColumn }) => {
+const Column = ({ column, index, cards, columns, onUpdateColumn, onDeleteColumn }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(column.title);
   const [showMenu, setShowMenu] = useState(false);
+  const [canScrollDown, setCanScrollDown] = useState(false);
+  const scrollContainerRef = useRef(null);
 
   const handleSave = async () => {
     if (!editTitle.trim()) {
@@ -32,8 +34,46 @@ const Column = ({ column, index, cards, onUpdateColumn, onDeleteColumn }) => {
     setShowMenu(false);
   };
 
+  // 스크롤 가능 여부 체크
+  useEffect(() => {
+    const checkScroll = () => {
+      if (scrollContainerRef.current) {
+        const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+        setCanScrollDown(scrollTop + clientHeight < scrollHeight - 5);
+      }
+    };
+
+    checkScroll();
+    const container = scrollContainerRef.current;
+    if (container) {
+      container.addEventListener('scroll', checkScroll, { passive: true });
+      
+      const observer = new ResizeObserver(() => {
+        setTimeout(checkScroll, 50);
+      });
+      observer.observe(container);
+      
+      return () => {
+        container.removeEventListener('scroll', checkScroll);
+        observer.disconnect();
+      };
+    }
+  }, [cards]); // cards가 변경될 때마다 체크
+
+  // 아래로 스크롤하는 함수
+  const scrollDown = () => {
+    if (scrollContainerRef.current) {
+      const container = scrollContainerRef.current;
+      const scrollAmount = container.clientHeight * 0.7; // 컨테이너 높이의 70%만큼 스크롤
+      container.scrollBy({
+        top: scrollAmount,
+        behavior: 'smooth'
+      });
+    }
+  };
+
   return (
-    <Draggable draggableId={column.id} index={index} type="COLUMN">
+    <Draggable draggableId={String(column.id)} index={index} type="COLUMN">
       {(provided, snapshot) => (
         <div
           ref={provided.innerRef}
@@ -136,13 +176,16 @@ const Column = ({ column, index, cards, onUpdateColumn, onDeleteColumn }) => {
         </div>
 
             {/* 드롭 영역 - 동적 높이, 스크롤 가능 */}
-            <div className="flex-1 min-h-0 flex flex-col">
-              <Droppable droppableId={column.id} type="CARD">
+            <div className="flex-1 min-h-0 flex flex-col relative">
+              <Droppable droppableId={String(column.id)} type="CARD">
                 {(providedDroppable, snapshot) => (
                   <div
-                    ref={providedDroppable.innerRef}
+                    ref={(node) => {
+                      providedDroppable.innerRef(node);
+                      scrollContainerRef.current = node;
+                    }}
                     {...providedDroppable.droppableProps}
-                    className={`flex-1 transition-all rounded-lg overflow-y-auto overflow-x-hidden ${
+                    className={`flex-1 rounded-lg overflow-y-auto overflow-x-hidden ${
                       snapshot.isDraggingOver 
                         ? 'bg-blue-50/50 border-2 border-blue-300 border-dashed' 
                         : ''
@@ -153,13 +196,41 @@ const Column = ({ column, index, cards, onUpdateColumn, onDeleteColumn }) => {
                   >
                     <div className="space-y-3 pr-1">
                       {cards.map((card, cardIndex) => (
-                        <Card key={card.id} card={card} index={cardIndex} />
+                        <Card key={card.id} card={card} index={cardIndex} columns={columns} />
                       ))}
                       {providedDroppable.placeholder}
                     </div>
                   </div>
                 )}
               </Droppable>
+
+              {/* 아래쪽 화살표 인디케이터 (스크롤 가능할 때만 표시) */}
+              {canScrollDown && (
+                <button
+                  onClick={scrollDown}
+                  className="absolute bottom-2 left-1/2 -translate-x-1/2 z-20 flex items-center justify-center cursor-pointer hover:scale-110 active:scale-95 transition-all duration-200"
+                  aria-label="아래로 스크롤"
+                >
+                  <div className="bg-red-100/90 backdrop-blur-sm rounded-full p-2 shadow-lg border border-red-200 hover:bg-red-200 hover:shadow-xl transition-all duration-200">
+                    <svg 
+                      width="20" 
+                      height="20" 
+                      viewBox="0 0 24 24" 
+                      fill="none" 
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="text-red-400"
+                    >
+                      <path 
+                        d="M6 9L12 15L18 9" 
+                        stroke="currentColor" 
+                        strokeWidth="2" 
+                        strokeLinecap="round" 
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </div>
+                </button>
+              )}
             </div>
 
             {/* 카드 추가 버튼 - 항상 보이도록 */}

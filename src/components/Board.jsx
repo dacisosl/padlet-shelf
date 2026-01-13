@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { DragDropContext, Droppable } from '@hello-pangea/dnd';
 import Column from './Column';
 import { subscribeToColumns, subscribeToCards, updateCardsOrder, updateColumnsOrder, addColumn, updateColumn, deleteColumn } from '../firebase/firestore';
@@ -13,7 +13,9 @@ const Board = () => {
   const [error, setError] = useState(null);
   const [showAddColumnForm, setShowAddColumnForm] = useState(false);
   const [newColumnTitle, setNewColumnTitle] = useState('');
-  const ignoreUpdatesUntilRef = useRef(0); // Firestore 업데이트 후 일정 시간 동안 실시간 업데이트 무시
+  const [canScrollRight, setCanScrollRight] = useState(false);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const scrollContainerRef = useRef(null);
   const isDraggingRef = useRef(false); // 드래그 중인지 추적 (리렌더링 없이)
 
   useEffect(() => {
@@ -49,10 +51,9 @@ const Board = () => {
     // 카드 구독
     const unsubscribeCards = subscribeToCards(
       (newCards) => {
-        const now = Date.now();
-        // 드래그 중이거나 최근에 업데이트한 경우 무시 (성능 최적화)
+        // 드래그 중일 때만 무시 (성능 최적화)
         // ref를 사용하여 최신 드래그 상태 확인
-        if (isDraggingRef.current || now < ignoreUpdatesUntilRef.current) {
+        if (isDraggingRef.current) {
           return;
         }
         setCards(newCards);
@@ -68,9 +69,75 @@ const Board = () => {
     };
   }, [columnsInitialized, loading, user]); // isDragging 의존성 제거 (구독 재설정 방지)
 
+  // 스크롤 가능 여부 체크
+  useEffect(() => {
+    const checkScroll = () => {
+      if (scrollContainerRef.current) {
+        const { scrollLeft, scrollWidth, clientWidth } = scrollContainerRef.current;
+        // 스크롤 가능 여부를 더 정확하게 체크
+        const canScrollR = scrollLeft + clientWidth < scrollWidth - 5;
+        const canScrollL = scrollLeft > 5;
+        setCanScrollRight(canScrollR);
+        setCanScrollLeft(canScrollL);
+      }
+    };
+
+    // 즉시 체크
+    checkScroll();
+
+    // DOM 렌더링 후 다시 체크
+    const timeoutId1 = setTimeout(checkScroll, 100);
+    const timeoutId2 = setTimeout(checkScroll, 300);
+
+    const container = scrollContainerRef.current;
+    if (container) {
+      container.addEventListener('scroll', checkScroll, { passive: true });
+      window.addEventListener('resize', checkScroll);
+      
+      // 컬럼이 변경될 때도 체크
+      const observer = new ResizeObserver(() => {
+        setTimeout(checkScroll, 50);
+      });
+      observer.observe(container);
+      
+      return () => {
+        clearTimeout(timeoutId1);
+        clearTimeout(timeoutId2);
+        container.removeEventListener('scroll', checkScroll);
+        window.removeEventListener('resize', checkScroll);
+        observer.disconnect();
+      };
+    }
+  }, [columns, cards]); // cards도 의존성에 추가하여 카드 변경 시에도 체크
+
+  // 오른쪽으로 스크롤하는 함수
+  const scrollRight = () => {
+    if (scrollContainerRef.current) {
+      const container = scrollContainerRef.current;
+      const scrollAmount = container.clientWidth * 0.8; // 화면 너비의 80%만큼 스크롤
+      container.scrollBy({
+        left: scrollAmount,
+        behavior: 'smooth'
+      });
+    }
+  };
+
+  // 왼쪽으로 스크롤하는 함수
+  const scrollLeft = () => {
+    if (scrollContainerRef.current) {
+      const container = scrollContainerRef.current;
+      const scrollAmount = container.clientWidth * 0.8; // 화면 너비의 80%만큼 스크롤
+      container.scrollBy({
+        left: -scrollAmount,
+        behavior: 'smooth'
+      });
+    }
+  };
+
   // 컬럼별로 카드 분류 (매 렌더링마다 계산하여 즉시 반영 보장)
-  // useMemo 제거: flushSync 후에도 즉시 반영되도록
-  const cardsByColumn = (() => {
+  // 컬럼별로 카드 분류 (매 렌더링마다 계산하여 즉시 반영)
+  // cards 배열이 변경되면 즉시 재계산되도록 보장
+  const cardsByColumn = useMemo(() => {
     const grouped = {};
     cards.forEach((card) => {
       const colId = card.columnId;
@@ -85,7 +152,7 @@ const Board = () => {
       sortedGrouped[colId] = [...grouped[colId]].sort((a, b) => (a.order || 0) - (b.order || 0));
     });
     return sortedGrouped;
-  })();
+  }, [cards]);
 
   // 새 컬럼 추가
   const handleAddColumn = async (e) => {
@@ -178,7 +245,7 @@ const Board = () => {
       return;
     }
 
-    // 카드 드래그 처리 - 낙관적 업데이트 (단순화된 로직)
+    // 카드 드래그 처리 (섹션 드래그와 동일한 패턴)
     const sourceColumnId = source.droppableId;
     const destColumnId = destination.droppableId;
     
@@ -217,25 +284,16 @@ const Board = () => {
         updates: { order: index },
       }));
 
-      // 실시간 구독 차단
-      ignoreUpdatesUntilRef.current = Date.now() + 1000;
-
-      // 즉시 로컬 상태 반영 (낙관적 업데이트)
+      // 즉시 로컬 상태 반영
       setCards(newCards);
-      isDraggingRef.current = false;
 
-      // Firestore에 일괄 업데이트 (백그라운드, await 없음)
+      // Firestore에 일괄 업데이트 (백그라운드)
       updateCardsOrder(updates)
-        .then(() => {
-          setTimeout(() => {
-            ignoreUpdatesUntilRef.current = 0;
-          }, 300);
-        })
         .catch((error) => {
           console.error('카드 순서 업데이트 실패:', error);
-          ignoreUpdatesUntilRef.current = 0;
         });
 
+      isDraggingRef.current = false;
       return;
     }
 
@@ -303,24 +361,16 @@ const Board = () => {
       })),
     ];
 
-    // 실시간 구독 차단
-    ignoreUpdatesUntilRef.current = Date.now() + 1000;
-
-    // 즉시 로컬 상태 반영 (낙관적 업데이트)
+    // 즉시 로컬 상태 반영
     setCards(newCards);
-    isDraggingRef.current = false;
 
-    // Firestore에 일괄 업데이트 (백그라운드, await 없음)
+    // Firestore에 일괄 업데이트 (백그라운드)
     updateCardsOrder(updates)
-      .then(() => {
-        setTimeout(() => {
-          ignoreUpdatesUntilRef.current = 0;
-        }, 300);
-      })
       .catch((error) => {
         console.error('카드 순서 업데이트 실패:', error);
-        ignoreUpdatesUntilRef.current = 0;
       });
+
+    isDraggingRef.current = false;
   };
 
   if (loading) {
@@ -346,14 +396,82 @@ const Board = () => {
         </div>
       </div>
 
-      {/* 메인 컨텐츠 영역 */}
-      <div 
-        className="w-full overflow-x-auto overflow-y-hidden"
-        style={{ 
-          height: 'calc(100vh - 80px)',
-          scrollBehavior: 'smooth'
-        }}
-      >
+      {/* 메인 컨텐츠 영역 - 래퍼 */}
+      <div className="relative w-full" style={{ height: 'calc(100vh - 80px)' }}>
+        {/* 왼쪽 화살표 인디케이터 (스크롤 가능할 때만 표시) - 화면 왼쪽 끝에 고정 */}
+        {canScrollLeft && (
+          <button
+            onClick={scrollLeft}
+            className="fixed z-30 flex items-center justify-center cursor-pointer hover:scale-110 active:scale-95 transition-all duration-200"
+            style={{ 
+              left: '16px',
+              top: 'calc(80px + (100vh - 80px) / 2)',
+              transform: 'translateY(-50%)'
+            }}
+            aria-label="왼쪽으로 스크롤"
+          >
+            <div className="bg-white/90 backdrop-blur-sm rounded-full p-3 shadow-lg border border-gray-200 hover:bg-white hover:shadow-xl transition-all duration-200">
+              <svg 
+                width="24" 
+                height="24" 
+                viewBox="0 0 24 24" 
+                fill="none" 
+                xmlns="http://www.w3.org/2000/svg"
+                className="text-blue-500"
+              >
+                <path 
+                  d="M15 18L9 12L15 6" 
+                  stroke="currentColor" 
+                  strokeWidth="2" 
+                  strokeLinecap="round" 
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </div>
+          </button>
+        )}
+
+        {/* 오른쪽 화살표 인디케이터 (스크롤 가능할 때만 표시) - 화면 오른쪽 끝에 고정 */}
+        {canScrollRight && (
+          <button
+            onClick={scrollRight}
+            className="fixed z-30 flex items-center justify-center cursor-pointer hover:scale-110 active:scale-95 transition-all duration-200"
+            style={{ 
+              right: '16px',
+              top: 'calc(80px + (100vh - 80px) / 2)',
+              transform: 'translateY(-50%)'
+            }}
+            aria-label="오른쪽으로 스크롤"
+          >
+            <div className="bg-white/90 backdrop-blur-sm rounded-full p-3 shadow-lg border border-gray-200 hover:bg-white hover:shadow-xl transition-all duration-200">
+              <svg 
+                width="24" 
+                height="24" 
+                viewBox="0 0 24 24" 
+                fill="none" 
+                xmlns="http://www.w3.org/2000/svg"
+                className="text-blue-500"
+              >
+                <path 
+                  d="M9 18L15 12L9 6" 
+                  stroke="currentColor" 
+                  strokeWidth="2" 
+                  strokeLinecap="round" 
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </div>
+          </button>
+        )}
+
+        {/* 스크롤 컨텐츠 영역 */}
+        <div 
+          ref={scrollContainerRef}
+          className="w-full h-full overflow-x-auto overflow-y-hidden"
+          style={{ 
+            scrollBehavior: 'smooth'
+          }}
+        >
         <DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
           <Droppable droppableId="columns" type="COLUMN" direction="horizontal">
             {(provided) => (
@@ -378,6 +496,7 @@ const Board = () => {
                         column={column} 
                         index={index}
                         cards={columnCards}
+                        columns={columns}
                         onUpdateColumn={handleUpdateColumn}
                         onDeleteColumn={handleDeleteColumn}
                       />
@@ -430,6 +549,7 @@ const Board = () => {
             )}
           </Droppable>
         </DragDropContext>
+        </div>
       </div>
 
       {/* 에러 메시지 */}

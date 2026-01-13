@@ -5,10 +5,11 @@ import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage
 import { storage } from '../firebase/firebase';
 import { compressImage, isImageFile, isFileSizeValid } from '../utils/imageCompression';
 
-const CardEditModal = ({ card, isOpen, onClose, onUpdate }) => {
+const CardEditModal = ({ card, columns, isOpen, onClose, onUpdate }) => {
   const [text, setText] = useState(card?.text || '');
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(card?.imageUrl || null);
+  const [selectedColumnId, setSelectedColumnId] = useState(card?.columnId || '');
   const [isUploading, setIsUploading] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const fileInputRef = useRef(null);
@@ -18,6 +19,7 @@ const CardEditModal = ({ card, isOpen, onClose, onUpdate }) => {
       setText(card.text || '');
       setImagePreview(card.imageUrl || null);
       setImageFile(null);
+      setSelectedColumnId(card.columnId || '');
     }
   }, [isOpen, card]);
 
@@ -120,11 +122,18 @@ const CardEditModal = ({ card, isOpen, onClose, onUpdate }) => {
       }
 
       // Firestore에 카드 업데이트
-      await updateCard(card.id, {
+      const updates = {
         text: text.trim() || '',
         imageUrl: imageUrl,
         updatedAt: new Date(),
-      });
+      };
+
+      // 섹션이 변경되었으면 columnId도 업데이트
+      if (selectedColumnId && selectedColumnId !== card.columnId) {
+        updates.columnId = selectedColumnId;
+      }
+
+      await updateCard(card.id, updates);
 
       onUpdate();
       onClose();
@@ -275,6 +284,29 @@ const CardEditModal = ({ card, isOpen, onClose, onUpdate }) => {
                 </span>
               </label>
             </div>
+
+            {/* 섹션 선택 드롭다운 */}
+            {columns && columns.length > 0 && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  섹션 이동
+                </label>
+                <select
+                  value={selectedColumnId}
+                  onChange={(e) => setSelectedColumnId(e.target.value)}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm bg-white"
+                  disabled={isUploading}
+                >
+                  {columns
+                    .sort((a, b) => (a.order || 0) - (b.order || 0))
+                    .map((column) => (
+                      <option key={column.id} value={column.id}>
+                        {column.title}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            )}
           </form>
         </div>
 
