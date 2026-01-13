@@ -28,6 +28,12 @@ body {
   min-height: 100vh;
 }
 
+/* 모바일 터치 최적화 */
+* {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
 /* 커스텀 스크롤바 - 가로 스크롤을 더 잘 보이게 */
 ::-webkit-scrollbar {
   width: 8px;

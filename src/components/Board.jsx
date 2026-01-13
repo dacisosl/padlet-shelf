@@ -15,6 +15,8 @@ const Board = () => {
   const [newColumnTitle, setNewColumnTitle] = useState('');
   const [canScrollRight, setCanScrollRight] = useState(false);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [mainHeight, setMainHeight] = useState('calc(100vh - 60px)');
+  const [headerHeight, setHeaderHeight] = useState(60);
   const scrollContainerRef = useRef(null);
   const isDraggingRef = useRef(false); // 드래그 중인지 추적 (리렌더링 없이)
 
@@ -68,6 +70,23 @@ const Board = () => {
       unsubscribeCards();
     };
   }, [columnsInitialized, loading, user]); // isDragging 의존성 제거 (구독 재설정 방지)
+
+  // 반응형 높이 설정
+  useEffect(() => {
+    const updateHeight = () => {
+      if (window.innerWidth >= 640) {
+        setMainHeight('calc(100vh - 80px)');
+        setHeaderHeight(80);
+      } else {
+        setMainHeight('calc(100vh - 60px)');
+        setHeaderHeight(60);
+      }
+    };
+
+    updateHeight();
+    window.addEventListener('resize', updateHeight);
+    return () => window.removeEventListener('resize', updateHeight);
+  }, []);
 
   // 스크롤 가능 여부 체크
   useEffect(() => {
@@ -385,39 +404,38 @@ const Board = () => {
     <div className="min-h-screen w-full overflow-hidden">
       {/* 헤더 */}
       <div className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-white/20 shadow-sm">
-        <div className="max-w-full px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold text-gray-800">{APP_TITLE}</h1>
-            <span className="text-sm font-medium text-gray-500 bg-gray-100 px-2 py-1 rounded">{APP_VERSION}</span>
+        <div className="max-w-full px-3 py-2 sm:px-6 sm:py-4 flex items-center justify-between">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-800">{APP_TITLE}</h1>
+            <span className="text-xs sm:text-sm font-medium text-gray-500 bg-gray-100 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded">{APP_VERSION}</span>
           </div>
-          <div className="text-xs text-gray-400">
+          <div className="text-[10px] sm:text-xs text-gray-400 hidden sm:block">
             마지막 업데이트: {new Date().toLocaleDateString('ko-KR')}
           </div>
         </div>
       </div>
 
       {/* 메인 컨텐츠 영역 - 래퍼 */}
-      <div className="relative w-full" style={{ height: 'calc(100vh - 80px)' }}>
+      <div className="relative w-full" style={{ height: mainHeight }}>
         {/* 왼쪽 화살표 인디케이터 (스크롤 가능할 때만 표시) - 화면 왼쪽 끝에 고정 */}
         {canScrollLeft && (
           <button
             onClick={scrollLeft}
-            className="fixed z-30 flex items-center justify-center cursor-pointer hover:scale-110 active:scale-95 transition-all duration-200"
+            className="fixed left-2 sm:left-4 z-30 flex items-center justify-center cursor-pointer active:scale-95 transition-all duration-200 touch-manipulation"
             style={{ 
-              left: '16px',
-              top: 'calc(80px + (100vh - 80px) / 2)',
+              top: `calc(${headerHeight}px + (100vh - ${headerHeight}px) / 2)`,
               transform: 'translateY(-50%)'
             }}
             aria-label="왼쪽으로 스크롤"
           >
-            <div className="bg-white/90 backdrop-blur-sm rounded-full p-3 shadow-lg border border-gray-200 hover:bg-white hover:shadow-xl transition-all duration-200">
+            <div className="bg-white/90 backdrop-blur-sm rounded-full p-2 sm:p-3 shadow-lg border border-gray-200 active:bg-white active:shadow-xl transition-all duration-200">
               <svg 
-                width="24" 
-                height="24" 
+                width="20" 
+                height="20" 
                 viewBox="0 0 24 24" 
                 fill="none" 
                 xmlns="http://www.w3.org/2000/svg"
-                className="text-blue-500"
+                className="text-blue-500 sm:w-6 sm:h-6"
               >
                 <path 
                   d="M15 18L9 12L15 6" 
@@ -435,22 +453,21 @@ const Board = () => {
         {canScrollRight && (
           <button
             onClick={scrollRight}
-            className="fixed z-30 flex items-center justify-center cursor-pointer hover:scale-110 active:scale-95 transition-all duration-200"
+            className="fixed right-2 sm:right-4 z-30 flex items-center justify-center cursor-pointer active:scale-95 transition-all duration-200 touch-manipulation"
             style={{ 
-              right: '16px',
-              top: 'calc(80px + (100vh - 80px) / 2)',
+              top: `calc(${headerHeight}px + (100vh - ${headerHeight}px) / 2)`,
               transform: 'translateY(-50%)'
             }}
             aria-label="오른쪽으로 스크롤"
           >
-            <div className="bg-white/90 backdrop-blur-sm rounded-full p-3 shadow-lg border border-gray-200 hover:bg-white hover:shadow-xl transition-all duration-200">
+            <div className="bg-white/90 backdrop-blur-sm rounded-full p-2 sm:p-3 shadow-lg border border-gray-200 active:bg-white active:shadow-xl transition-all duration-200">
               <svg 
-                width="24" 
-                height="24" 
+                width="20" 
+                height="20" 
                 viewBox="0 0 24 24" 
                 fill="none" 
                 xmlns="http://www.w3.org/2000/svg"
-                className="text-blue-500"
+                className="text-blue-500 sm:w-6 sm:h-6"
               >
                 <path 
                   d="M9 18L15 12L9 6" 
@@ -478,7 +495,7 @@ const Board = () => {
               <div
                 ref={provided.innerRef}
                 {...provided.droppableProps}
-                className="inline-flex px-6 py-6 gap-5"
+                className="inline-flex px-3 py-4 sm:px-6 sm:py-6 gap-3 sm:gap-5"
                 style={{ 
                   alignItems: 'flex-start',
                   minWidth: 'max-content' // 내부 컨텐츠가 부모보다 넓어지도록 보장
@@ -505,29 +522,29 @@ const Board = () => {
                 {provided.placeholder}
 
                 {/* 새 컬럼 추가 버튼/폼 */}
-                <div className="flex-shrink-0 w-[320px] flex flex-col">
+                <div className="flex-shrink-0 w-[280px] sm:w-[300px] md:w-[320px] flex flex-col">
                   {!showAddColumnForm ? (
                     <button
                       onClick={() => setShowAddColumnForm(true)}
-                      className="w-full h-16 bg-white/90 hover:bg-white rounded-xl shadow-sm border-2 border-dashed border-white/50 hover:border-blue-400 transition-all duration-200 flex items-center justify-center text-gray-600 hover:text-blue-600 font-medium"
+                      className="w-full h-14 sm:h-16 bg-white/90 active:bg-white rounded-xl shadow-sm border-2 border-dashed border-white/50 active:border-blue-400 transition-all duration-200 flex items-center justify-center text-gray-600 active:text-blue-600 font-medium text-sm sm:text-base"
                     >
-                      <span className="mr-2 text-xl">+</span>
+                      <span className="mr-2 text-lg sm:text-xl">+</span>
                       섹션 추가
                     </button>
                   ) : (
-                    <form onSubmit={handleAddColumn} className="bg-white/95 rounded-xl shadow-lg p-4 border border-white/50">
+                    <form onSubmit={handleAddColumn} className="bg-white/95 rounded-xl shadow-lg p-3 sm:p-4 border border-white/50">
                       <input
                         type="text"
                         value={newColumnTitle}
                         onChange={(e) => setNewColumnTitle(e.target.value)}
                         placeholder="섹션 제목 입력..."
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3 text-sm"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3 text-xs sm:text-sm"
                         autoFocus
                       />
                       <div className="flex gap-2">
                         <button
                           type="submit"
-                          className="flex-1 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium text-sm transition-colors"
+                          className="flex-1 px-3 sm:px-4 py-1.5 sm:py-2 bg-blue-500 active:bg-blue-600 text-white rounded-lg font-medium text-xs sm:text-sm transition-colors"
                         >
                           추가
                         </button>
@@ -537,7 +554,7 @@ const Board = () => {
                             setShowAddColumnForm(false);
                             setNewColumnTitle('');
                           }}
-                          className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg font-medium text-sm transition-colors"
+                          className="px-3 sm:px-4 py-1.5 sm:py-2 bg-gray-200 active:bg-gray-300 rounded-lg font-medium text-xs sm:text-sm transition-colors"
                         >
                           취소
                         </button>

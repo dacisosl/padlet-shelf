@@ -8,6 +8,7 @@ const Column = ({ column, index, cards, columns, onUpdateColumn, onDeleteColumn 
   const [editTitle, setEditTitle] = useState(column.title);
   const [showMenu, setShowMenu] = useState(false);
   const [canScrollDown, setCanScrollDown] = useState(false);
+  const [columnHeight, setColumnHeight] = useState('calc(100vh - 100px)');
   const scrollContainerRef = useRef(null);
 
   const handleSave = async () => {
@@ -33,6 +34,21 @@ const Column = ({ column, index, cards, columns, onUpdateColumn, onDeleteColumn 
     await onDeleteColumn(column.id);
     setShowMenu(false);
   };
+
+  // 반응형 높이 설정
+  useEffect(() => {
+    const updateHeight = () => {
+      if (window.innerWidth >= 640) {
+        setColumnHeight('calc(100vh - 140px)');
+      } else {
+        setColumnHeight('calc(100vh - 100px)');
+      }
+    };
+
+    updateHeight();
+    window.addEventListener('resize', updateHeight);
+    return () => window.removeEventListener('resize', updateHeight);
+  }, []);
 
   // 스크롤 가능 여부 체크
   useEffect(() => {
@@ -78,15 +94,15 @@ const Column = ({ column, index, cards, columns, onUpdateColumn, onDeleteColumn 
         <div
           ref={provided.innerRef}
           {...provided.draggableProps}
-          className="flex-shrink-0 w-[320px] flex flex-col"
+          className="flex-shrink-0 w-[280px] sm:w-[300px] md:w-[320px] flex flex-col"
           style={{
-            maxHeight: 'calc(100vh - 140px)',
-            height: 'calc(100vh - 140px)', // 고정 높이로 가로 스크롤 시 일관성 유지
+            maxHeight: columnHeight,
+            height: columnHeight,
             ...provided.draggableProps.style,
           }}
         >
           <div 
-            className={`bg-white rounded-xl p-4 flex flex-col h-full transition-all ${
+            className={`bg-white rounded-xl p-3 sm:p-4 flex flex-col h-full transition-all ${
               snapshot.isDragging ? 'shadow-2xl rotate-1 scale-105' : ''
             }`}
             style={{
@@ -99,7 +115,7 @@ const Column = ({ column, index, cards, columns, onUpdateColumn, onDeleteColumn 
             {/* 컬럼 헤더 */}
             <div 
               {...provided.dragHandleProps}
-              className="mb-4 pb-3 border-b-2 border-gray-200 flex-shrink-0 relative cursor-grab active:cursor-grabbing"
+              className="mb-3 sm:mb-4 pb-2 sm:pb-3 border-b-2 border-gray-200 flex-shrink-0 relative cursor-grab active:cursor-grabbing"
             >
           {isEditing ? (
             <input
@@ -114,19 +130,19 @@ const Column = ({ column, index, cards, columns, onUpdateColumn, onDeleteColumn 
                   handleCancel();
                 }
               }}
-              className="w-full text-lg font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-2 py-1"
+              className="w-full text-base sm:text-lg font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-2 py-1"
               autoFocus
             />
           ) : (
             <>
               <h2 
-                className="text-lg font-bold text-gray-800 mb-1 pr-8 cursor-pointer hover:text-blue-600 transition-colors"
+                className="text-base sm:text-lg font-bold text-gray-800 mb-1 pr-6 sm:pr-8 cursor-pointer hover:text-blue-600 transition-colors"
                 onClick={() => setIsEditing(true)}
                 title="클릭하여 제목 수정"
               >
                 {column.title}
               </h2>
-              <p className="text-xs text-gray-500 font-medium">{cards.length}개 카드</p>
+              <p className="text-[10px] sm:text-xs text-gray-500 font-medium">{cards.length}개 카드</p>
               {/* 메뉴 버튼 */}
               <button
                 onClick={(e) => {
@@ -208,17 +224,17 @@ const Column = ({ column, index, cards, columns, onUpdateColumn, onDeleteColumn 
               {canScrollDown && (
                 <button
                   onClick={scrollDown}
-                  className="absolute bottom-2 left-1/2 -translate-x-1/2 z-20 flex items-center justify-center cursor-pointer hover:scale-110 active:scale-95 transition-all duration-200"
+                  className="absolute bottom-1.5 sm:bottom-2 left-1/2 -translate-x-1/2 z-20 flex items-center justify-center cursor-pointer active:scale-95 transition-all duration-200 touch-manipulation"
                   aria-label="아래로 스크롤"
                 >
-                  <div className="bg-red-100/90 backdrop-blur-sm rounded-full p-2 shadow-lg border border-red-200 hover:bg-red-200 hover:shadow-xl transition-all duration-200">
+                  <div className="bg-red-100/90 backdrop-blur-sm rounded-full p-1.5 sm:p-2 shadow-lg border border-red-200 active:bg-red-200 active:shadow-xl transition-all duration-200">
                     <svg 
-                      width="20" 
-                      height="20" 
+                      width="16" 
+                      height="16" 
                       viewBox="0 0 24 24" 
                       fill="none" 
                       xmlns="http://www.w3.org/2000/svg"
-                      className="text-red-400"
+                      className="text-red-400 sm:w-5 sm:h-5"
                     >
                       <path 
                         d="M6 9L12 15L18 9" 
