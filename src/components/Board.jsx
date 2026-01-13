@@ -1,5 +1,4 @@
-import { useEffect, useState, useMemo, useRef } from 'react';
-import { flushSync } from 'react-dom';
+import { useEffect, useState, useRef } from 'react';
 import { DragDropContext, Droppable } from '@hello-pangea/dnd';
 import Column from './Column';
 import { subscribeToColumns, subscribeToCards, updateCardsOrder, updateColumnsOrder, addColumn, updateColumn, deleteColumn } from '../firebase/firestore';
@@ -69,9 +68,9 @@ const Board = () => {
     };
   }, [columnsInitialized, loading, user]); // isDragging 의존성 제거 (구독 재설정 방지)
 
-  // 컬럼별로 카드 분류 (메모이제이션으로 성능 최적화)
-  // cards 배열의 참조가 변경될 때마다 재계산되도록 보장
-  const cardsByColumn = useMemo(() => {
+  // 컬럼별로 카드 분류 (매 렌더링마다 계산하여 즉시 반영 보장)
+  // useMemo 제거: flushSync 후에도 즉시 반영되도록
+  const cardsByColumn = (() => {
     const grouped = {};
     cards.forEach((card) => {
       const colId = card.columnId;
@@ -86,7 +85,7 @@ const Board = () => {
       sortedGrouped[colId] = [...grouped[colId]].sort((a, b) => (a.order || 0) - (b.order || 0));
     });
     return sortedGrouped;
-  }, [cards]);
+  })();
 
   // 새 컬럼 추가
   const handleAddColumn = async (e) => {
@@ -179,172 +178,148 @@ const Board = () => {
       return;
     }
 
-    // 카드 드래그 처리
+    // 카드 드래그 처리 - 낙관적 업데이트 (단순화된 로직)
     const sourceColumnId = source.droppableId;
     const destColumnId = destination.droppableId;
-    const sourceCards = cards
-      .filter((card) => card.columnId === sourceColumnId)
-      .sort((a, b) => (a.order || 0) - (b.order || 0));
-    const destCards = cards
-      .filter((card) => card.columnId === destColumnId)
-      .sort((a, b) => (a.order || 0) - (b.order || 0));
-    const draggedCard = cards.find((card) => card.id === draggableId);
-
+    
+    // 현재 카드 배열을 깊은 복사
+    const newCards = [...cards];
+    
+    // 드래그된 카드 찾기
+    const draggedCard = newCards.find(card => card.id === draggableId);
     if (!draggedCard) {
       isDraggingRef.current = false;
       return;
     }
 
-    // 낙관적 업데이트: 즉시 UI 반영을 위한 카드 배열 생성 (불변성 보장)
-    let updates = [];
-    let updatedCards;
-
     // 같은 컬럼 내에서 이동
     if (sourceColumnId === destColumnId) {
-      const newCards = Array.from(sourceCards);
-      const [removed] = newCards.splice(source.index, 1);
-      newCards.splice(destination.index, 0, removed);
-
-      // 불변성 보장: map을 사용하여 새로운 배열과 객체 생성
-      const cardUpdateMap = new Map();
-      newCards.forEach((card, index) => {
-        cardUpdateMap.set(card.id, index);
-      });
-
-      updatedCards = cards.map((card) => {
-        const newOrder = cardUpdateMap.get(card.id);
-        if (newOrder !== undefined && card.columnId === sourceColumnId) {
-          // order가 변경된 경우에만 새로운 객체 생성
-          return { ...card, order: newOrder };
-        }
-        // 변경되지 않은 카드는 그대로 유지 (참조 유지)
-        return card;
-      });
-
-      // 실제로 순서가 바뀐 카드만 업데이트 (최적화)
-      const minIndex = Math.min(source.index, destination.index);
-      const maxIndex = Math.max(source.index, destination.index);
+      // 해당 컬럼의 카드들만 필터링 및 정렬
+      const columnCards = newCards
+        .filter(card => card.columnId === sourceColumnId)
+        .sort((a, b) => (a.order || 0) - (b.order || 0));
       
-      for (let i = minIndex; i <= maxIndex; i++) {
-        const card = newCards[i];
-        if (card) {
-          updates.push({
-            cardId: card.id,
-            updates: { order: i },
-          });
+      // splice로 카드 이동
+      const [removed] = columnCards.splice(source.index, 1);
+      columnCards.splice(destination.index, 0, removed);
+      
+      // order 업데이트
+      columnCards.forEach((card, index) => {
+        const cardIndex = newCards.findIndex(c => c.id === card.id);
+        if (cardIndex !== -1) {
+          newCards[cardIndex] = { ...newCards[cardIndex], order: index };
         }
-      }
-    } else {
-      // 다른 컬럼으로 이동
-      const newSourceCards = Array.from(sourceCards);
-      newSourceCards.splice(source.index, 1);
-
-      const newDestCards = Array.from(destCards);
-      newDestCards.splice(destination.index, 0, draggedCard);
-
-      // 드래그된 카드 확인
-      const draggedCardInCards = cards.find(c => c.id === draggedCard.id);
-      if (!draggedCardInCards) {
-        console.error('드래그된 카드를 찾을 수 없습니다:', draggedCard.id);
-        isDraggingRef.current = false;
-        return;
-      }
-
-      // 불변성 보장: map을 사용하여 업데이트 정보 수집
-      const sourceCardUpdateMap = new Map();
-      newSourceCards.forEach((card, index) => {
-        sourceCardUpdateMap.set(card.id, { order: index, columnId: sourceColumnId });
       });
 
-      const destCardUpdateMap = new Map();
-      newDestCards.forEach((card, index) => {
-        destCardUpdateMap.set(card.id, { order: index, columnId: destColumnId });
-      });
+      // Firestore 업데이트 목록 생성
+      const updates = columnCards.map((card, index) => ({
+        cardId: card.id,
+        updates: { order: index },
+      }));
 
-      // 불변성 보장: map을 사용하여 새로운 배열과 객체 생성
-      updatedCards = cards.map((card) => {
-        // 소스 컬럼의 카드 업데이트 (드래그된 카드 제외)
-        if (card.columnId === sourceColumnId && card.id !== draggedCard.id) {
-          const update = sourceCardUpdateMap.get(card.id);
-          if (update) {
-            return { ...card, order: update.order };
-          }
-        }
-        
-        // 드래그된 카드 업데이트
-        if (card.id === draggedCard.id) {
-          const update = destCardUpdateMap.get(card.id);
-          if (update) {
-            return { ...card, order: update.order, columnId: update.columnId };
-          }
-        }
-        
-        // 대상 컬럼의 나머지 카드 업데이트 (드래그된 카드 제외)
-        if (card.columnId === destColumnId && card.id !== draggedCard.id) {
-          const update = destCardUpdateMap.get(card.id);
-          if (update) {
-            return { ...card, order: update.order, columnId: update.columnId };
-          }
-        }
-        
-        // 변경되지 않은 카드는 그대로 유지
-        return card;
-      });
+      // 실시간 구독 차단
+      ignoreUpdatesUntilRef.current = Date.now() + 1000;
 
-      // 소스 컬럼: 이동된 위치 이후의 카드만 업데이트
-      for (let i = source.index; i < newSourceCards.length; i++) {
-        updates.push({
-          cardId: newSourceCards[i].id,
-          updates: { order: i },
+      // 즉시 로컬 상태 반영 (낙관적 업데이트)
+      setCards(newCards);
+      isDraggingRef.current = false;
+
+      // Firestore에 일괄 업데이트 (백그라운드, await 없음)
+      updateCardsOrder(updates)
+        .then(() => {
+          setTimeout(() => {
+            ignoreUpdatesUntilRef.current = 0;
+          }, 300);
+        })
+        .catch((error) => {
+          console.error('카드 순서 업데이트 실패:', error);
+          ignoreUpdatesUntilRef.current = 0;
         });
-      }
 
-      // 드래그된 카드 업데이트 (columnId와 order 변경)
-      updates.push({
+      return;
+    }
+
+    // 다른 컬럼으로 이동
+    // 소스 컬럼의 카드들
+    const sourceColumnCards = newCards
+      .filter(card => card.columnId === sourceColumnId)
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
+    
+    // 대상 컬럼의 카드들
+    const destColumnCards = newCards
+      .filter(card => card.columnId === destColumnId)
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
+    
+    // 소스 컬럼에서 카드 제거
+    sourceColumnCards.splice(source.index, 1);
+    
+    // 대상 컬럼에 카드 추가
+    destColumnCards.splice(destination.index, 0, {
+      ...draggedCard,
+      columnId: destColumnId
+    });
+    
+    // 모든 카드의 order 업데이트
+    sourceColumnCards.forEach((card, index) => {
+      const cardIndex = newCards.findIndex(c => c.id === card.id);
+      if (cardIndex !== -1) {
+        newCards[cardIndex] = { ...newCards[cardIndex], order: index };
+      }
+    });
+    
+    destColumnCards.forEach((card, index) => {
+      const cardIndex = newCards.findIndex(c => c.id === card.id);
+      if (cardIndex !== -1) {
+        newCards[cardIndex] = { 
+          ...newCards[cardIndex], 
+          order: index,
+          columnId: destColumnId
+        };
+      }
+    });
+
+    // Firestore 업데이트 목록 생성
+    const updates = [
+      // 소스 컬럼의 카드들
+      ...sourceColumnCards.map((card, index) => ({
+        cardId: card.id,
+        updates: { order: index },
+      })),
+      // 드래그된 카드
+      {
         cardId: draggedCard.id,
         updates: { 
           order: destination.index,
           columnId: destColumnId 
         },
-      });
+      },
+      // 대상 컬럼의 기존 카드들 (드래그된 카드 제외)
+      ...destColumnCards.slice(destination.index + 1).map((card, index) => ({
+        cardId: card.id,
+        updates: { 
+          order: destination.index + 1 + index,
+          columnId: destColumnId 
+        },
+      })),
+    ];
 
-      // 대상 컬럼: 삽입된 위치 이후의 카드만 업데이트 (드래그된 카드 제외)
-      for (let i = destination.index + 1; i < newDestCards.length; i++) {
-        updates.push({
-          cardId: newDestCards[i].id,
-          updates: { 
-            order: i,
-            columnId: destColumnId 
-          },
-        });
-      }
-    }
+    // 실시간 구독 차단
+    ignoreUpdatesUntilRef.current = Date.now() + 1000;
 
-    // 낙관적 업데이트: 즉시 UI 반영 (서버 응답 대기 없음)
-    // flushSync를 사용하여 동기적으로 리렌더링하여 즉시 반영 보장
-    flushSync(() => {
-      setCards(updatedCards);
-    });
-    
-    // 드래그 종료 플래그 해제
+    // 즉시 로컬 상태 반영 (낙관적 업데이트)
+    setCards(newCards);
     isDraggingRef.current = false;
-    
-    // Firestore 업데이트 후 500ms 동안 실시간 구독 무시 (중복 업데이트 방지)
-    ignoreUpdatesUntilRef.current = Date.now() + 500;
-    
-    // Firestore에 일괄 업데이트 (백그라운드에서 비동기 실행)
+
+    // Firestore에 일괄 업데이트 (백그라운드, await 없음)
     updateCardsOrder(updates)
       .then(() => {
-        // 업데이트 완료 후 실시간 구독 재활성화
         setTimeout(() => {
           ignoreUpdatesUntilRef.current = 0;
         }, 300);
       })
       .catch((error) => {
         console.error('카드 순서 업데이트 실패:', error);
-        // 실패 시 실시간 구독 재활성화
         ignoreUpdatesUntilRef.current = 0;
-        isDraggingRef.current = false;
       });
   };
 
