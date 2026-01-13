@@ -235,7 +235,15 @@ const Board = () => {
       const newDestCards = Array.from(destCards);
       newDestCards.splice(destination.index, 0, draggedCard);
 
-      // 소스 컬럼 카드 업데이트
+      // 드래그된 카드의 인덱스를 먼저 찾기
+      const draggedCardIndex = updatedCards.findIndex(c => c.id === draggedCard.id);
+      if (draggedCardIndex === -1) {
+        console.error('드래그된 카드를 찾을 수 없습니다:', draggedCard.id);
+        isDraggingRef.current = false;
+        return;
+      }
+
+      // 소스 컬럼 카드 업데이트 (드래그된 카드 제외)
       newSourceCards.forEach((card, index) => {
         const cardIndex = updatedCards.findIndex(c => c.id === card.id);
         if (cardIndex !== -1) {
@@ -243,15 +251,25 @@ const Board = () => {
         }
       });
 
-      // 대상 컬럼 카드 업데이트
+      // 드래그된 카드 업데이트 (columnId와 order 변경)
+      updatedCards[draggedCardIndex] = {
+        ...updatedCards[draggedCardIndex],
+        order: destination.index,
+        columnId: destColumnId
+      };
+
+      // 대상 컬럼의 나머지 카드 업데이트 (드래그된 카드 제외)
       newDestCards.forEach((card, index) => {
-        const cardIndex = updatedCards.findIndex(c => c.id === card.id);
-        if (cardIndex !== -1) {
-          updatedCards[cardIndex] = { 
-            ...updatedCards[cardIndex], 
-            order: index,
-            columnId: destColumnId 
-          };
+        // 드래그된 카드는 이미 업데이트했으므로 제외
+        if (card.id !== draggedCard.id) {
+          const cardIndex = updatedCards.findIndex(c => c.id === card.id);
+          if (cardIndex !== -1) {
+            updatedCards[cardIndex] = { 
+              ...updatedCards[cardIndex], 
+              order: index,
+              columnId: destColumnId 
+            };
+          }
         }
       });
 
@@ -263,8 +281,17 @@ const Board = () => {
         });
       }
 
-      // 대상 컬럼: 삽입된 위치 이후의 카드만 업데이트
-      for (let i = destination.index; i < newDestCards.length; i++) {
+      // 드래그된 카드 업데이트 (columnId와 order 변경)
+      updates.push({
+        cardId: draggedCard.id,
+        updates: { 
+          order: destination.index,
+          columnId: destColumnId 
+        },
+      });
+
+      // 대상 컬럼: 삽입된 위치 이후의 카드만 업데이트 (드래그된 카드 제외)
+      for (let i = destination.index + 1; i < newDestCards.length; i++) {
         updates.push({
           cardId: newDestCards[i].id,
           updates: { 
