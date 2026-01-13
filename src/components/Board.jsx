@@ -3,6 +3,7 @@ import { DragDropContext } from '@hello-pangea/dnd';
 import Column from './Column';
 import { subscribeToColumns, subscribeToCards, updateCardsOrder, addColumn, updateColumn, deleteColumn } from '../firebase/firestore';
 import { useAuth } from '../hooks/useAuth';
+import { APP_VERSION, APP_TITLE } from '../config/version';
 
 const Board = () => {
   const { user, loading } = useAuth();
@@ -199,8 +200,14 @@ const Board = () => {
     <div className="min-h-screen w-full overflow-hidden">
       {/* 헤더 */}
       <div className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-white/20 shadow-sm">
-        <div className="max-w-full px-6 py-4">
-          <h1 className="text-3xl font-bold text-gray-800">패들렛 보드</h1>
+        <div className="max-w-full px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold text-gray-800">{APP_TITLE}</h1>
+            <span className="text-sm font-medium text-gray-500 bg-gray-100 px-2 py-1 rounded">{APP_VERSION}</span>
+          </div>
+          <div className="text-xs text-gray-400">
+            마지막 업데이트: {new Date().toLocaleDateString('ko-KR')}
+          </div>
         </div>
       </div>
 
