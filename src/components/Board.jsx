@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { DragDropContext, Droppable } from '@hello-pangea/dnd';
 import Column from './Column';
 import { subscribeToColumns, subscribeToCards, updateCardsOrder, updateColumnsOrder, addColumn, updateColumn, deleteColumn } from '../firebase/firestore';
@@ -69,6 +70,7 @@ const Board = () => {
   }, [columnsInitialized, loading, user]); // isDragging 의존성 제거 (구독 재설정 방지)
 
   // 컬럼별로 카드 분류 (메모이제이션으로 성능 최적화)
+  // cards 배열의 참조가 변경될 때마다 재계산되도록 보장
   const cardsByColumn = useMemo(() => {
     const grouped = {};
     cards.forEach((card) => {
@@ -78,16 +80,13 @@ const Board = () => {
       }
       grouped[colId].push(card);
     });
-    // 각 컬럼별로 정렬
+    // 각 컬럼별로 정렬 (새 배열 반환하여 불변성 보장)
+    const sortedGrouped = {};
     Object.keys(grouped).forEach((colId) => {
-      grouped[colId].sort((a, b) => (a.order || 0) - (b.order || 0));
+      sortedGrouped[colId] = [...grouped[colId]].sort((a, b) => (a.order || 0) - (b.order || 0));
     });
-    return grouped;
+    return sortedGrouped;
   }, [cards]);
-
-  const getCardsByColumn = (columnId) => {
-    return cardsByColumn[columnId] || [];
-  };
 
   // 새 컬럼 추가
   const handleAddColumn = async (e) => {
@@ -122,7 +121,7 @@ const Board = () => {
   const handleDeleteColumn = async (columnId) => {
     try {
       // 해당 컬럼의 모든 카드도 함께 삭제
-      const columnCards = getCardsByColumn(columnId);
+      const columnCards = (cardsByColumn[columnId] || []);
       // 카드는 나중에 자동으로 정리되거나 별도로 삭제할 수 있음
       await deleteColumn(columnId);
     } catch (error) {
@@ -322,8 +321,10 @@ const Board = () => {
     }
 
     // 낙관적 업데이트: 즉시 UI 반영 (서버 응답 대기 없음)
-    // 함수형 업데이트로 확실한 리렌더링 트리거
-    setCards(() => updatedCards);
+    // flushSync를 사용하여 동기적으로 리렌더링하여 즉시 반영 보장
+    flushSync(() => {
+      setCards(updatedCards);
+    });
     
     // 드래그 종료 플래그 해제
     isDraggingRef.current = false;
@@ -371,7 +372,13 @@ const Board = () => {
       </div>
 
       {/* 메인 컨텐츠 영역 */}
-      <div className="w-full overflow-x-auto overflow-y-auto" style={{ height: 'calc(100vh - 80px)' }}>
+      <div 
+        className="w-full overflow-x-auto overflow-y-hidden"
+        style={{ 
+          height: 'calc(100vh - 80px)',
+          scrollBehavior: 'smooth'
+        }}
+      >
         <DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
           <Droppable droppableId="columns" type="COLUMN" direction="horizontal">
             {(provided) => (
@@ -379,13 +386,17 @@ const Board = () => {
                 ref={provided.innerRef}
                 {...provided.droppableProps}
                 className="inline-flex px-6 py-6 gap-5"
-                style={{ alignItems: 'flex-start' }}
+                style={{ 
+                  alignItems: 'flex-start',
+                  minWidth: 'max-content' // 내부 컨텐츠가 부모보다 넓어지도록 보장
+                }}
               >
                 {/* 기존 컬럼들 */}
                 {columns
                   .sort((a, b) => (a.order || 0) - (b.order || 0))
                   .map((column, index) => {
-                    const columnCards = getCardsByColumn(column.id);
+                    // cardsByColumn에서 직접 가져와서 즉시 반영 보장
+                    const columnCards = cardsByColumn[column.id] || [];
                     return (
                       <Column 
                         key={column.id} 

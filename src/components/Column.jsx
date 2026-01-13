@@ -41,6 +41,7 @@ const Column = ({ column, index, cards, onUpdateColumn, onDeleteColumn }) => {
           className="flex-shrink-0 w-[320px] flex flex-col"
           style={{
             maxHeight: 'calc(100vh - 140px)',
+            height: 'calc(100vh - 140px)', // 고정 높이로 가로 스크롤 시 일관성 유지
             ...provided.draggableProps.style,
           }}
         >
