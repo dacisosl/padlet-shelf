@@ -16,6 +16,7 @@ const Board = () => {
   const [isDragging, setIsDragging] = useState(false);
   const [localCards, setLocalCards] = useState([]); // 드래그 중 로컬 상태
   const ignoreUpdatesUntilRef = useRef(0); // Firestore 업데이트 후 일정 시간 동안 실시간 업데이트 무시
+  const isDraggingRef = useRef(false); // 클로저 문제 해결을 위한 ref
 
   useEffect(() => {
     // 컬럼 구독
@@ -52,7 +53,8 @@ const Board = () => {
       (newCards) => {
         const now = Date.now();
         // 드래그 중이거나 최근에 업데이트한 경우 무시 (성능 최적화)
-        if (isDragging || now < ignoreUpdatesUntilRef.current) {
+        // ref를 사용하여 최신 드래그 상태 확인
+        if (isDraggingRef.current || now < ignoreUpdatesUntilRef.current) {
           return;
         }
         setCards(newCards);
@@ -136,6 +138,7 @@ const Board = () => {
   // 드래그 시작 핸들러
   const handleDragStart = () => {
     setIsDragging(true);
+    isDraggingRef.current = true; // ref 업데이트
     // 현재 카드 상태를 로컬 상태로 복사 (드래그 중 실시간 업데이트 차단)
     setLocalCards([...cards]);
   };
@@ -147,6 +150,7 @@ const Board = () => {
     // 드롭 위치가 없으면 무시
     if (!destination) {
       setIsDragging(false);
+      isDraggingRef.current = false;
       setLocalCards([]);
       return;
     }
@@ -157,6 +161,7 @@ const Board = () => {
       destination.index === source.index
     ) {
       setIsDragging(false);
+      isDraggingRef.current = false;
       setLocalCards([]);
       return;
     }
@@ -174,6 +179,7 @@ const Board = () => {
 
     if (!draggedCard) {
       setIsDragging(false);
+      isDraggingRef.current = false;
       setLocalCards([]);
       return;
     }
@@ -261,25 +267,29 @@ const Board = () => {
     setCards(updatedCards);
     setLocalCards(updatedCards);
     
-    // Firestore 업데이트 후 2초 동안 실시간 구독 무시 (중복 업데이트 방지)
-    ignoreUpdatesUntilRef.current = Date.now() + 2000;
-    
-    // 드래그 종료 플래그 해제 (즉시 해제하여 다음 드래그 준비)
+    // 드래그 종료 플래그 즉시 해제 (다음 드래그 준비)
     setIsDragging(false);
+    isDraggingRef.current = false;
+    
+    // Firestore 업데이트 후 500ms 동안 실시간 구독 무시 (중복 업데이트 방지, 시간 단축)
+    ignoreUpdatesUntilRef.current = Date.now() + 500;
     
     // Firestore에 일괄 업데이트 (백그라운드에서 비동기 실행)
     updateCardsOrder(updates)
       .then(() => {
-        // 업데이트 완료 후 로컬 상태 정리 (다음 프레임에서)
+        // 업데이트 완료 후 로컬 상태 정리
         setTimeout(() => {
           setLocalCards([]);
-        }, 100);
+          // 실시간 구독 재활성화
+          ignoreUpdatesUntilRef.current = 0;
+        }, 300);
       })
       .catch((error) => {
         console.error('카드 순서 업데이트 실패:', error);
         // 실패 시 실시간 구독 재활성화
         ignoreUpdatesUntilRef.current = 0;
         setIsDragging(false);
+        isDraggingRef.current = false;
         setLocalCards([]);
       });
   };
