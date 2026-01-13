@@ -196,9 +196,9 @@ const Board = () => {
       return;
     }
 
-    // 낙관적 업데이트: 즉시 UI 반영을 위한 카드 배열 생성
-    let updatedCards = [...cards];
+    // 낙관적 업데이트: 즉시 UI 반영을 위한 카드 배열 생성 (불변성 보장)
     let updates = [];
+    let updatedCards;
 
     // 같은 컬럼 내에서 이동
     if (sourceColumnId === destColumnId) {
@@ -206,12 +206,20 @@ const Board = () => {
       const [removed] = newCards.splice(source.index, 1);
       newCards.splice(destination.index, 0, removed);
 
-      // 업데이트된 카드들의 order 변경
+      // 불변성 보장: map을 사용하여 새로운 배열과 객체 생성
+      const cardUpdateMap = new Map();
       newCards.forEach((card, index) => {
-        const cardIndex = updatedCards.findIndex(c => c.id === card.id);
-        if (cardIndex !== -1) {
-          updatedCards[cardIndex] = { ...updatedCards[cardIndex], order: index };
+        cardUpdateMap.set(card.id, index);
+      });
+
+      updatedCards = cards.map((card) => {
+        const newOrder = cardUpdateMap.get(card.id);
+        if (newOrder !== undefined && card.columnId === sourceColumnId) {
+          // order가 변경된 경우에만 새로운 객체 생성
+          return { ...card, order: newOrder };
         }
+        // 변경되지 않은 카드는 그대로 유지 (참조 유지)
+        return card;
       });
 
       // 실제로 순서가 바뀐 카드만 업데이트 (최적화)
@@ -235,42 +243,53 @@ const Board = () => {
       const newDestCards = Array.from(destCards);
       newDestCards.splice(destination.index, 0, draggedCard);
 
-      // 드래그된 카드의 인덱스를 먼저 찾기
-      const draggedCardIndex = updatedCards.findIndex(c => c.id === draggedCard.id);
-      if (draggedCardIndex === -1) {
+      // 드래그된 카드 확인
+      const draggedCardInCards = cards.find(c => c.id === draggedCard.id);
+      if (!draggedCardInCards) {
         console.error('드래그된 카드를 찾을 수 없습니다:', draggedCard.id);
         isDraggingRef.current = false;
         return;
       }
 
-      // 소스 컬럼 카드 업데이트 (드래그된 카드 제외)
+      // 불변성 보장: map을 사용하여 업데이트 정보 수집
+      const sourceCardUpdateMap = new Map();
       newSourceCards.forEach((card, index) => {
-        const cardIndex = updatedCards.findIndex(c => c.id === card.id);
-        if (cardIndex !== -1) {
-          updatedCards[cardIndex] = { ...updatedCards[cardIndex], order: index };
-        }
+        sourceCardUpdateMap.set(card.id, { order: index, columnId: sourceColumnId });
       });
 
-      // 드래그된 카드 업데이트 (columnId와 order 변경)
-      updatedCards[draggedCardIndex] = {
-        ...updatedCards[draggedCardIndex],
-        order: destination.index,
-        columnId: destColumnId
-      };
-
-      // 대상 컬럼의 나머지 카드 업데이트 (드래그된 카드 제외)
+      const destCardUpdateMap = new Map();
       newDestCards.forEach((card, index) => {
-        // 드래그된 카드는 이미 업데이트했으므로 제외
-        if (card.id !== draggedCard.id) {
-          const cardIndex = updatedCards.findIndex(c => c.id === card.id);
-          if (cardIndex !== -1) {
-            updatedCards[cardIndex] = { 
-              ...updatedCards[cardIndex], 
-              order: index,
-              columnId: destColumnId 
-            };
+        destCardUpdateMap.set(card.id, { order: index, columnId: destColumnId });
+      });
+
+      // 불변성 보장: map을 사용하여 새로운 배열과 객체 생성
+      updatedCards = cards.map((card) => {
+        // 소스 컬럼의 카드 업데이트 (드래그된 카드 제외)
+        if (card.columnId === sourceColumnId && card.id !== draggedCard.id) {
+          const update = sourceCardUpdateMap.get(card.id);
+          if (update) {
+            return { ...card, order: update.order };
           }
         }
+        
+        // 드래그된 카드 업데이트
+        if (card.id === draggedCard.id) {
+          const update = destCardUpdateMap.get(card.id);
+          if (update) {
+            return { ...card, order: update.order, columnId: update.columnId };
+          }
+        }
+        
+        // 대상 컬럼의 나머지 카드 업데이트 (드래그된 카드 제외)
+        if (card.columnId === destColumnId && card.id !== draggedCard.id) {
+          const update = destCardUpdateMap.get(card.id);
+          if (update) {
+            return { ...card, order: update.order, columnId: update.columnId };
+          }
+        }
+        
+        // 변경되지 않은 카드는 그대로 유지
+        return card;
       });
 
       // 소스 컬럼: 이동된 위치 이후의 카드만 업데이트
@@ -303,7 +322,8 @@ const Board = () => {
     }
 
     // 낙관적 업데이트: 즉시 UI 반영 (서버 응답 대기 없음)
-    setCards(updatedCards);
+    // 함수형 업데이트로 확실한 리렌더링 트리거
+    setCards(() => updatedCards);
     
     // 드래그 종료 플래그 해제
     isDraggingRef.current = false;
