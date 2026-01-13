@@ -108,7 +108,7 @@ const Board = () => {
     }
   };
 
-  // 드래그 앤 드롭 핸들러
+  // 드래그 앤 드롭 핸들러 (최적화: 낙관적 업데이트)
   const handleDragEnd = async (result) => {
     const { destination, source, draggableId } = result;
 
@@ -139,19 +139,19 @@ const Board = () => {
       const [removed] = newCards.splice(source.index, 1);
       newCards.splice(destination.index, 0, removed);
 
-      // 순서 업데이트
-      newCards.forEach((card, index) => {
-        if (card.id !== draggedCard.id) {
+      // 실제로 순서가 바뀐 카드만 업데이트 (최적화)
+      const minIndex = Math.min(source.index, destination.index);
+      const maxIndex = Math.max(source.index, destination.index);
+      
+      for (let i = minIndex; i <= maxIndex; i++) {
+        const card = newCards[i];
+        if (card) {
           updates.push({
             cardId: card.id,
-            updates: { order: index },
+            updates: { order: i },
           });
         }
-      });
-      updates.push({
-        cardId: draggedCard.id,
-        updates: { order: destination.index },
-      });
+      }
     } else {
       // 다른 컬럼으로 이동
       const newSourceCards = Array.from(sourceCards);
@@ -160,30 +160,31 @@ const Board = () => {
       const newDestCards = Array.from(destCards);
       newDestCards.splice(destination.index, 0, draggedCard);
 
-      // 소스 컬럼의 카드들 순서 업데이트
-      newSourceCards.forEach((card, index) => {
+      // 소스 컬럼: 이동된 위치 이후의 카드만 업데이트
+      for (let i = source.index; i < newSourceCards.length; i++) {
         updates.push({
-          cardId: card.id,
-          updates: { order: index },
+          cardId: newSourceCards[i].id,
+          updates: { order: i },
         });
-      });
+      }
 
-      // 대상 컬럼의 카드들 순서 업데이트
-      newDestCards.forEach((card, index) => {
+      // 대상 컬럼: 삽입된 위치 이후의 카드만 업데이트
+      for (let i = destination.index; i < newDestCards.length; i++) {
         updates.push({
-          cardId: card.id,
-          updates: { order: index, columnId: destColumnId },
+          cardId: newDestCards[i].id,
+          updates: { 
+            order: i,
+            columnId: destColumnId 
+          },
         });
-      });
+      }
     }
 
-    // Firestore에 일괄 업데이트
-    try {
-      await updateCardsOrder(updates);
-    } catch (error) {
+    // Firestore에 일괄 업데이트 (비동기로 실행, UI 블로킹 방지)
+    updateCardsOrder(updates).catch((error) => {
       console.error('카드 순서 업데이트 실패:', error);
-      alert('카드 이동에 실패했습니다.');
-    }
+      // 실패해도 사용자에게 알리지 않음 (실시간 동기화로 자동 복구됨)
+    });
   };
 
   if (loading) {
