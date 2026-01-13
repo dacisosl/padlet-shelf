@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { DragDropContext } from '@hello-pangea/dnd';
 import Column from './Column';
 import { subscribeToColumns, subscribeToCards, updateCardsOrder, addColumn, updateColumn, deleteColumn } from '../firebase/firestore';
@@ -15,6 +15,7 @@ const Board = () => {
   const [newColumnTitle, setNewColumnTitle] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [localCards, setLocalCards] = useState([]); // 드래그 중 로컬 상태
+  const ignoreUpdatesUntilRef = useRef(0); // Firestore 업데이트 후 일정 시간 동안 실시간 업데이트 무시
 
   useEffect(() => {
     // 컬럼 구독
@@ -49,11 +50,13 @@ const Board = () => {
     // 카드 구독
     const unsubscribeCards = subscribeToCards(
       (newCards) => {
-        // 드래그 중이 아닐 때만 업데이트 (성능 최적화)
-        if (!isDragging) {
-          setCards(newCards);
-          setLocalCards([]); // 로컬 상태 초기화
+        const now = Date.now();
+        // 드래그 중이거나 최근에 업데이트한 경우 무시 (성능 최적화)
+        if (isDragging || now < ignoreUpdatesUntilRef.current) {
+          return;
         }
+        setCards(newCards);
+        setLocalCards([]); // 로컬 상태 초기화
       },
       (error) => {
         console.error('카드 구독 오류:', error);
@@ -64,14 +67,28 @@ const Board = () => {
       unsubscribeColumns();
       unsubscribeCards();
     };
-  }, [columnsInitialized, loading, user, isDragging]);
+  }, [columnsInitialized, loading, user]); // isDragging 의존성 제거 (구독 재설정 방지)
 
-  // 컬럼별로 카드 분류 (로컬 상태 우선 사용)
-  const getCardsByColumn = (columnId) => {
+  // 컬럼별로 카드 분류 (메모이제이션으로 성능 최적화)
+  const cardsByColumn = useMemo(() => {
     const cardsToUse = localCards.length > 0 && isDragging ? localCards : cards;
-    return cardsToUse
-      .filter((card) => card.columnId === columnId)
-      .sort((a, b) => (a.order || 0) - (b.order || 0));
+    const grouped = {};
+    cardsToUse.forEach((card) => {
+      const colId = card.columnId;
+      if (!grouped[colId]) {
+        grouped[colId] = [];
+      }
+      grouped[colId].push(card);
+    });
+    // 각 컬럼별로 정렬
+    Object.keys(grouped).forEach((colId) => {
+      grouped[colId].sort((a, b) => (a.order || 0) - (b.order || 0));
+    });
+    return grouped;
+  }, [cards, localCards, isDragging]);
+
+  const getCardsByColumn = (columnId) => {
+    return cardsByColumn[columnId] || [];
   };
 
   // 새 컬럼 추가
@@ -244,17 +261,27 @@ const Board = () => {
     setCards(updatedCards);
     setLocalCards(updatedCards);
     
-    // 드래그 종료 플래그 해제 (다음 프레임에서)
-    setTimeout(() => {
-      setIsDragging(false);
-      setLocalCards([]);
-    }, 100);
-
+    // Firestore 업데이트 후 2초 동안 실시간 구독 무시 (중복 업데이트 방지)
+    ignoreUpdatesUntilRef.current = Date.now() + 2000;
+    
+    // 드래그 종료 플래그 해제 (즉시 해제하여 다음 드래그 준비)
+    setIsDragging(false);
+    
     // Firestore에 일괄 업데이트 (백그라운드에서 비동기 실행)
-    updateCardsOrder(updates).catch((error) => {
-      console.error('카드 순서 업데이트 실패:', error);
-      // 실패해도 사용자에게 알리지 않음 (실시간 동기화로 자동 복구됨)
-    });
+    updateCardsOrder(updates)
+      .then(() => {
+        // 업데이트 완료 후 로컬 상태 정리 (다음 프레임에서)
+        setTimeout(() => {
+          setLocalCards([]);
+        }, 100);
+      })
+      .catch((error) => {
+        console.error('카드 순서 업데이트 실패:', error);
+        // 실패 시 실시간 구독 재활성화
+        ignoreUpdatesUntilRef.current = 0;
+        setIsDragging(false);
+        setLocalCards([]);
+      });
   };
 
   if (loading) {
